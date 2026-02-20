@@ -1,0 +1,24 @@
+{
+  "agent_id": "699845c8901471fdd3946ce2",
+  "agent_name": "Lead Research Agent",
+  "agent_type": "json",
+  "accessor": "json",
+  "has_module_outputs": false,
+  "response_schema": {
+    "type": "object",
+    "properties": {
+      "lead_name": { "type": "string" },
+      "company": { "type": "string" },
+      "role": { "type": "string" },
+      "linkedin_summary": { "type": "string" },
+      "tech_stack": { "type": "string" },
+      "pain_points": { "type": "array", "items": { "type": "string" } },
+      "trigger_events": { "type": "array", "items": { "type": "string" } },
+      "personalization_hooks": { "type": "array", "items": { "type": "string" } },
+      "engagement_score": { "type": "number" }
+    },
+    "required": ["lead_name", "company", "role", "linkedin_summary", "tech_stack", "pain_points", "trigger_events", "personalization_hooks", "engagement_score"],
+    "additionalProperties": false
+  },
+  "sample_fields": ["lead_name", "company", "role", "linkedin_summary", "tech_stack", "pain_points", "trigger_events", "personalization_hooks", "engagement_score"]
+}

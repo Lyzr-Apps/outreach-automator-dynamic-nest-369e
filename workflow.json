@@ -1,0 +1,79 @@
+{
+  "workflow": {
+    "nodes": [
+      {
+        "id": "input_node",
+        "type": "Input",
+        "label": "Lead Data Input",
+        "nodeCategory": "input"
+      },
+      {
+        "id": "campaign_orchestrator",
+        "type": "Agent",
+        "label": "Campaign Orchestrator (Manager)",
+        "nodeCategory": "agent",
+        "agent_id": "699845de07f346cb61eddd5d",
+        "agent_type": "manager",
+        "model": "gpt-4.1",
+        "provider": "openai",
+        "managed_agents": ["699845c8901471fdd3946ce2", "699845c8155b7b746277f0b3"]
+      },
+      {
+        "id": "lead_research_agent",
+        "type": "Agent",
+        "label": "Lead Research Agent",
+        "nodeCategory": "agent",
+        "agent_id": "699845c8901471fdd3946ce2",
+        "agent_type": "sub-agent",
+        "model": "sonar-pro",
+        "provider": "perplexity"
+      },
+      {
+        "id": "content_architect_agent",
+        "type": "Agent",
+        "label": "Content Architect Agent",
+        "nodeCategory": "agent",
+        "agent_id": "699845c8155b7b746277f0b3",
+        "agent_type": "sub-agent",
+        "model": "gpt-4.1",
+        "provider": "openai"
+      },
+      {
+        "id": "email_delivery_agent",
+        "type": "Agent",
+        "label": "Email Delivery Agent",
+        "nodeCategory": "agent",
+        "agent_id": "69984626155b7b746277f0c4",
+        "agent_type": "independent",
+        "model": "gpt-4.1",
+        "provider": "openai",
+        "tools": ["GMAIL_SEND_EMAIL"]
+      },
+      {
+        "id": "engagement_monitor_agent",
+        "type": "Agent",
+        "label": "Engagement Monitor Agent",
+        "nodeCategory": "agent",
+        "agent_id": "69984626b5f6816ff2fd38aa",
+        "agent_type": "independent",
+        "model": "gpt-4.1",
+        "provider": "openai",
+        "tools": ["GMAIL_FETCH_EMAILS", "SLACK_CHAT_POST_MESSAGE", "SLACK_FIND_CHANNELS"]
+      },
+      {
+        "id": "output_node",
+        "type": "Output",
+        "label": "Results",
+        "nodeCategory": "end"
+      }
+    ],
+    "edges": [
+      { "source": "input_node", "target": "campaign_orchestrator" },
+      { "source": "campaign_orchestrator", "target": "lead_research_agent" },
+      { "source": "campaign_orchestrator", "target": "content_architect_agent" },
+      { "source": "campaign_orchestrator", "target": "email_delivery_agent" },
+      { "source": "email_delivery_agent", "target": "engagement_monitor_agent" },
+      { "source": "engagement_monitor_agent", "target": "output_node" }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "agent_id": "699845c8155b7b746277f0b3",
+  "agent_name": "Content Architect Agent",
+  "agent_type": "json",
+  "accessor": "json",
+  "has_module_outputs": false,
+  "response_schema": {
+    "type": "object",
+    "properties": {
+      "subject_line": { "type": "string" },
+      "email_body": { "type": "string" },
+      "follow_up_1": { "type": "string" },
+      "follow_up_2": { "type": "string" },
+      "follow_up_3": { "type": "string" },
+      "personalization_notes": { "type": "string" }
+    },
+    "required": ["subject_line", "email_body", "follow_up_1", "follow_up_2", "follow_up_3", "personalization_notes"],
+    "additionalProperties": false
+  },
+  "sample_fields": ["subject_line", "email_body", "follow_up_1", "follow_up_2", "follow_up_3", "personalization_notes"]
+}
