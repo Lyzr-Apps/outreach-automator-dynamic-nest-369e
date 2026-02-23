@@ -37,6 +37,16 @@ const EMAIL_DELIVERY_AGENT_ID = '69984626155b7b746277f0c4'
 const ENGAGEMENT_MONITOR_AGENT_ID = '69984626b5f6816ff2fd38aa'
 
 // ===== TYPES =====
+type OutreachChannel = 'email' | 'linkedin'
+
+interface TimelineEvent {
+  id: string
+  channel: OutreachChannel
+  action: string
+  date: string
+  detail?: string
+}
+
 interface Lead {
   id: string
   name: string
@@ -44,12 +54,14 @@ interface Lead {
   companyUrl: string
   linkedinUrl: string
   email: string
+  channel: OutreachChannel
   status: 'new' | 'researched' | 'drafted' | 'sent' | 'hot_lead' | 'replied' | 'closed'
   lastAction: string
   lastActionDate: string
   researchSummary?: string
   subjectLine?: string
   emailBody?: string
+  linkedinMessage?: string
   followUp1?: string
   followUp2?: string
   followUp3?: string
@@ -58,6 +70,7 @@ interface Lead {
   approved?: boolean
   engagementSignal?: string
   daysSinceContact?: number
+  timeline?: TimelineEvent[]
 }
 
 interface Settings {
@@ -83,8 +96,37 @@ interface EngagementResult {
   company?: string
   status?: string
   signal_type?: string
+  channel?: OutreachChannel
   follow_up_draft?: string
   days_since_contact?: number
+}
+
+// ===== CLIPBOARD HELPER =====
+function copyToClipboard(text: string): Promise<boolean> {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(text).then(() => true).catch(() => false)
+  }
+  // Fallback
+  const textarea = document.createElement('textarea')
+  textarea.value = text
+  textarea.style.position = 'fixed'
+  textarea.style.left = '-9999px'
+  document.body.appendChild(textarea)
+  textarea.select()
+  try {
+    document.execCommand('copy')
+    document.body.removeChild(textarea)
+    return Promise.resolve(true)
+  } catch {
+    document.body.removeChild(textarea)
+    return Promise.resolve(false)
+  }
+}
+
+// ===== CHANNEL ICON =====
+function ChannelIcon({ channel, size = 14 }: { channel?: OutreachChannel; size?: number }) {
+  if (channel === 'linkedin') return <FiLinkedin size={size} className="text-[#0A66C2]" />
+  return <FiMail size={size} className="text-primary" />
 }
 
 type Screen = 'dashboard' | 'campaigns' | 'review' | 'engagement' | 'settings'
@@ -92,11 +134,75 @@ type Screen = 'dashboard' | 'campaigns' | 'review' | 'engagement' | 'settings'
 // ===== SAMPLE DATA =====
 function generateSampleLeads(): Lead[] {
   return [
-    { id: 's1', name: 'Sarah Chen', company: 'TechFlow Inc', companyUrl: 'https://techflow.io', linkedinUrl: 'https://linkedin.com/in/sarachen', email: 'sarah@techflow.io', status: 'hot_lead', lastAction: 'Replied to follow-up', lastActionDate: '2026-02-19', researchSummary: 'VP of Engineering at TechFlow, a Series B SaaS startup. Recently posted about scaling challenges.', subjectLine: 'Scaling your engineering org, Sarah?', emailBody: 'Hi Sarah,\n\nI noticed your recent post about the challenges of scaling an engineering team from 20 to 50. At Zaps, we help teams like yours automate repetitive workflows so your engineers can focus on what matters.\n\nWould love to share how we helped a similar team save 15 hours per week.\n\nBest,\nAlex', followUp1: 'Quick follow-up on my previous note about engineering efficiency.', followUp2: 'Case study: How DataPipe saved 200 hours/month with workflow automation.', followUp3: 'Last check-in - would a 15-min demo be helpful?', qualityScore: 92, flags: 'High engagement', approved: true, engagementSignal: 'reply', daysSinceContact: 1 },
-    { id: 's2', name: 'Marcus Rodriguez', company: 'GrowthLab', companyUrl: 'https://growthlab.co', linkedinUrl: 'https://linkedin.com/in/marcusr', email: 'marcus@growthlab.co', status: 'sent', lastAction: 'Initial email sent', lastActionDate: '2026-02-17', researchSummary: 'Co-founder at GrowthLab, a growth marketing agency. Looking for automation tools.', subjectLine: 'Automate your client reporting, Marcus?', emailBody: 'Hi Marcus,\n\nAs a growth marketing agency founder, I imagine client reporting takes up a huge chunk of your week. Zaps can automate your cross-platform reporting pipeline.\n\nInterested in seeing how?\n\nBest,\nAlex', followUp1: 'Following up on automating your reporting workflows.', followUp2: 'ROI Calculator: See how much time you could save.', followUp3: 'Final nudge - happy to do a quick walkthrough.', qualityScore: 78, flags: '', approved: true, engagementSignal: 'no_response', daysSinceContact: 3 },
-    { id: 's3', name: 'Priya Patel', company: 'CloudNine Solutions', companyUrl: 'https://cloudnine.dev', linkedinUrl: 'https://linkedin.com/in/priyap', email: 'priya@cloudnine.dev', status: 'drafted', lastAction: 'Draft generated', lastActionDate: '2026-02-18', researchSummary: 'CTO at CloudNine Solutions, a cloud infrastructure company. Recently raised Series A.', subjectLine: 'Post-Series A scaling at CloudNine?', emailBody: 'Hi Priya,\n\nCongratulations on the Series A! As you scale CloudNine, automating internal workflows becomes critical. We help CTOs like you build reliable automation pipelines.\n\nHappy to share our approach?\n\nBest,\nAlex', followUp1: 'Quick note on scaling post-funding.', followUp2: 'How CloudBase automated 80% of their ops workflows.', followUp3: 'Last check-in on workflow automation.', qualityScore: 85, flags: 'Recent funding', approved: false, daysSinceContact: 2 },
-    { id: 's4', name: 'David Kim', company: 'OptiFlow', companyUrl: 'https://optiflow.ai', linkedinUrl: 'https://linkedin.com/in/davidkim', email: 'david@optiflow.ai', status: 'new', lastAction: 'Added to pipeline', lastActionDate: '2026-02-20', qualityScore: 0, flags: '' },
-    { id: 's5', name: 'Lisa Wang', company: 'DataStream', companyUrl: 'https://datastream.io', linkedinUrl: 'https://linkedin.com/in/lisawang', email: 'lisa@datastream.io', status: 'replied', lastAction: 'Positive reply received', lastActionDate: '2026-02-18', researchSummary: 'Head of Product at DataStream. Interested in data pipeline automation.', subjectLine: 'Streamline your data pipelines, Lisa?', emailBody: 'Hi Lisa,\n\nI saw DataStream is expanding its data integration capabilities. Our automation tools can help speed up your pipeline development by 3x.\n\nWorth a quick chat?\n\nBest,\nAlex', qualityScore: 88, flags: 'Booking demo', approved: true, engagementSignal: 'reply', daysSinceContact: 2 },
+    {
+      id: 's1', name: 'Sarah Chen', company: 'TechFlow Inc', companyUrl: 'https://techflow.io', linkedinUrl: 'https://linkedin.com/in/sarachen', email: 'sarah@techflow.io', channel: 'email', status: 'hot_lead', lastAction: 'Replied to follow-up email', lastActionDate: '2026-02-19',
+      researchSummary: 'VP of Engineering at TechFlow, a Series B SaaS startup. Recently posted about scaling challenges.',
+      subjectLine: 'Scaling your engineering org, Sarah?',
+      emailBody: 'Hi Sarah,\n\nI noticed your recent post about the challenges of scaling an engineering team from 20 to 50. At Zaps, we help teams like yours automate repetitive workflows so your engineers can focus on what matters.\n\nWould love to share how we helped a similar team save 15 hours per week.\n\nBest,\nAlex',
+      linkedinMessage: 'Hi Sarah - saw your post on scaling eng teams past 50. We helped a similar B2B SaaS team cut 15 hours/week of manual workflow overhead. Would love to connect and share the approach if useful.',
+      followUp1: 'Quick follow-up on my previous note about engineering efficiency.', followUp2: 'Case study: How DataPipe saved 200 hours/month with workflow automation.', followUp3: 'Last check-in - would a 15-min demo be helpful?',
+      qualityScore: 92, flags: 'High engagement', approved: true, engagementSignal: 'reply', daysSinceContact: 1,
+      timeline: [
+        { id: 't1', channel: 'linkedin', action: 'LinkedIn Connection Sent', date: '2026-02-14', detail: 'Connection request with personalized note' },
+        { id: 't2', channel: 'linkedin', action: 'LinkedIn Connection Accepted', date: '2026-02-15', detail: 'Sarah accepted the connection' },
+        { id: 't3', channel: 'email', action: 'Email Drafted', date: '2026-02-16', detail: 'PAS framework email generated' },
+        { id: 't4', channel: 'email', action: 'Email Sent', date: '2026-02-17', detail: 'Initial outreach email delivered' },
+        { id: 't5', channel: 'email', action: 'Email Opened', date: '2026-02-18', detail: 'Opened 3 times' },
+        { id: 't6', channel: 'email', action: 'Email Replied', date: '2026-02-19', detail: 'Positive reply - interested in demo' },
+      ],
+    },
+    {
+      id: 's2', name: 'Marcus Rodriguez', company: 'GrowthLab', companyUrl: 'https://growthlab.co', linkedinUrl: 'https://linkedin.com/in/marcusr', email: 'marcus@growthlab.co', channel: 'linkedin', status: 'sent', lastAction: 'LinkedIn DM sent', lastActionDate: '2026-02-17',
+      researchSummary: 'Co-founder at GrowthLab, a growth marketing agency. Looking for automation tools.',
+      subjectLine: 'Automate your client reporting, Marcus?',
+      emailBody: 'Hi Marcus,\n\nAs a growth marketing agency founder, I imagine client reporting takes up a huge chunk of your week. Zaps can automate your cross-platform reporting pipeline.\n\nInterested in seeing how?\n\nBest,\nAlex',
+      linkedinMessage: 'Hey Marcus - fellow founder here. I know client reporting eats hours every week for agency teams. We built something at Zaps that automates cross-platform reporting. Worth a quick look?',
+      followUp1: 'Following up on automating your reporting workflows.', followUp2: 'ROI Calculator: See how much time you could save.', followUp3: 'Final nudge - happy to do a quick walkthrough.',
+      qualityScore: 78, flags: '', approved: true, engagementSignal: 'no_response', daysSinceContact: 3,
+      timeline: [
+        { id: 't1', channel: 'linkedin', action: 'LinkedIn Connection Sent', date: '2026-02-15', detail: 'Connection request sent' },
+        { id: 't2', channel: 'linkedin', action: 'LinkedIn Connection Accepted', date: '2026-02-16', detail: 'Marcus accepted' },
+        { id: 't3', channel: 'linkedin', action: 'LinkedIn DM Sent', date: '2026-02-17', detail: 'Personalized DM delivered' },
+        { id: 't4', channel: 'email', action: 'Email Drafted', date: '2026-02-18', detail: 'Follow-up email generated as backup channel' },
+      ],
+    },
+    {
+      id: 's3', name: 'Priya Patel', company: 'CloudNine Solutions', companyUrl: 'https://cloudnine.dev', linkedinUrl: 'https://linkedin.com/in/priyap', email: 'priya@cloudnine.dev', channel: 'email', status: 'drafted', lastAction: 'Draft generated', lastActionDate: '2026-02-18',
+      researchSummary: 'CTO at CloudNine Solutions, a cloud infrastructure company. Recently raised Series A.',
+      subjectLine: 'Post-Series A scaling at CloudNine?',
+      emailBody: 'Hi Priya,\n\nCongratulations on the Series A! As you scale CloudNine, automating internal workflows becomes critical. We help CTOs like you build reliable automation pipelines.\n\nHappy to share our approach?\n\nBest,\nAlex',
+      linkedinMessage: 'Congrats on the Series A, Priya! Scaling ops post-funding is tough. We help CTOs like you automate internal workflows so your team can move faster. Happy to share how if helpful.',
+      followUp1: 'Quick note on scaling post-funding.', followUp2: 'How CloudBase automated 80% of their ops workflows.', followUp3: 'Last check-in on workflow automation.',
+      qualityScore: 85, flags: 'Recent funding', approved: false, daysSinceContact: 2,
+      timeline: [
+        { id: 't1', channel: 'linkedin', action: 'LinkedIn Profile Researched', date: '2026-02-17', detail: 'Recent Series A announcement found' },
+        { id: 't2', channel: 'email', action: 'Email Drafted', date: '2026-02-18', detail: 'PAS framework email with funding angle' },
+      ],
+    },
+    {
+      id: 's4', name: 'David Kim', company: 'OptiFlow', companyUrl: 'https://optiflow.ai', linkedinUrl: 'https://linkedin.com/in/davidkim', email: 'david@optiflow.ai', channel: 'linkedin', status: 'new', lastAction: 'Added to pipeline', lastActionDate: '2026-02-20',
+      linkedinMessage: 'Hi David - noticed OptiFlow is building in the AI optimization space. We help teams like yours automate the tedious parts of the dev pipeline. Would love to connect.',
+      qualityScore: 0, flags: '',
+      timeline: [
+        { id: 't1', channel: 'linkedin', action: 'Added to Pipeline', date: '2026-02-20', detail: 'LinkedIn-first outreach planned' },
+      ],
+    },
+    {
+      id: 's5', name: 'Lisa Wang', company: 'DataStream', companyUrl: 'https://datastream.io', linkedinUrl: 'https://linkedin.com/in/lisawang', email: 'lisa@datastream.io', channel: 'email', status: 'replied', lastAction: 'Positive reply received', lastActionDate: '2026-02-18',
+      researchSummary: 'Head of Product at DataStream. Interested in data pipeline automation.',
+      subjectLine: 'Streamline your data pipelines, Lisa?',
+      emailBody: 'Hi Lisa,\n\nI saw DataStream is expanding its data integration capabilities. Our automation tools can help speed up your pipeline development by 3x.\n\nWorth a quick chat?\n\nBest,\nAlex',
+      linkedinMessage: 'Hi Lisa - saw DataStream is expanding data integrations. Our tools can speed up pipeline dev by 3x. Happy to share how if you are interested.',
+      qualityScore: 88, flags: 'Booking demo', approved: true, engagementSignal: 'reply', daysSinceContact: 2,
+      timeline: [
+        { id: 't1', channel: 'linkedin', action: 'LinkedIn Connection Sent', date: '2026-02-13', detail: 'Initial connection request' },
+        { id: 't2', channel: 'linkedin', action: 'LinkedIn Connection Accepted', date: '2026-02-14', detail: 'Lisa accepted' },
+        { id: 't3', channel: 'linkedin', action: 'LinkedIn DM Sent', date: '2026-02-14', detail: 'Brief intro message' },
+        { id: 't4', channel: 'email', action: 'Email Drafted', date: '2026-02-15', detail: 'Full PAS framework email' },
+        { id: 't5', channel: 'email', action: 'Email Sent', date: '2026-02-16', detail: 'Outreach email delivered' },
+        { id: 't6', channel: 'email', action: 'Email Replied', date: '2026-02-18', detail: 'Interested in scheduling a demo' },
+      ],
+    },
   ]
 }
 
@@ -210,7 +316,10 @@ function PipelineColumn({ title, leads, color }: { title: string; leads: Lead[];
         {leads.map(lead => (
           <Card key={lead.id} className="bg-white/60 backdrop-blur-[8px] border border-white/[0.15] shadow-sm hover:shadow-md transition-all duration-200">
             <CardContent className="p-3">
-              <p className="text-sm font-medium truncate">{lead.name}</p>
+              <div className="flex items-center gap-1.5">
+                <p className="text-sm font-medium truncate flex-1">{lead.name}</p>
+                <ChannelIcon channel={lead.channel} size={12} />
+              </div>
               <p className="text-xs text-muted-foreground truncate">{lead.company}</p>
               {lead.lastAction && <p className="text-xs text-muted-foreground mt-2 truncate flex items-center gap-1"><FiClock size={10} />{lead.lastAction}</p>}
             </CardContent>
@@ -237,7 +346,10 @@ export default function Page() {
   const [bulkText, setBulkText] = useState('')
 
   // ----- Form fields for campaign -----
-  const [leadForm, setLeadForm] = useState({ name: '', company: '', companyUrl: '', linkedinUrl: '', email: '' })
+  const [leadForm, setLeadForm] = useState({ name: '', company: '', companyUrl: '', linkedinUrl: '', email: '', channel: 'email' as OutreachChannel })
+
+  // ----- Clipboard state -----
+  const [copiedId, setCopiedId] = useState<string | null>(null)
 
   // ----- Agent loading & status -----
   const [loading, setLoading] = useState(false)
@@ -304,12 +416,13 @@ export default function Page() {
       companyUrl: leadForm.companyUrl.trim(),
       linkedinUrl: leadForm.linkedinUrl.trim(),
       email: leadForm.email.trim(),
+      channel: leadForm.channel,
       status: 'new',
       lastAction: 'Added to batch',
       lastActionDate: new Date().toISOString().split('T')[0],
     }
     setBatchLeads(prev => [...prev, newLead])
-    setLeadForm({ name: '', company: '', companyUrl: '', linkedinUrl: '', email: '' })
+    setLeadForm({ name: '', company: '', companyUrl: '', linkedinUrl: '', email: '', channel: 'email' })
     setStatusMessage(`Added ${newLead.name} to batch.`)
   }
 
@@ -329,6 +442,7 @@ export default function Page() {
           companyUrl: parts[2] || '',
           linkedinUrl: parts[3] || '',
           email: parts[4] || '',
+          channel: (parts[5]?.toLowerCase() === 'linkedin' ? 'linkedin' : 'email') as OutreachChannel,
           status: 'new',
           lastAction: 'Added via bulk',
           lastActionDate: new Date().toISOString().split('T')[0],
@@ -382,12 +496,17 @@ export default function Page() {
               researchSummary: match?.research_summary ?? '',
               subjectLine: match?.subject_line ?? '',
               emailBody: match?.email_body ?? '',
+              linkedinMessage: match?.linkedin_message ?? match?.email_body?.split('\n').slice(0, 3).join(' ').substring(0, 280) ?? '',
               followUp1: match?.follow_up_1 ?? '',
               followUp2: match?.follow_up_2 ?? '',
               followUp3: match?.follow_up_3 ?? '',
               qualityScore: match?.quality_score ?? 0,
               flags: match?.flags ?? '',
               approved: false,
+              timeline: [
+                { id: generateId(), channel: 'linkedin' as OutreachChannel, action: 'LinkedIn Profile Researched', date: new Date().toISOString().split('T')[0], detail: 'Research completed' },
+                { id: generateId(), channel: bl.channel, action: `${bl.channel === 'linkedin' ? 'LinkedIn DM' : 'Email'} Drafted`, date: new Date().toISOString().split('T')[0], detail: 'Draft generated via Campaign Orchestrator' },
+              ],
             }
           }
           return { ...bl, status: 'drafted' as const, lastAction: 'Draft generated', lastActionDate: new Date().toISOString().split('T')[0] }
@@ -731,6 +850,17 @@ export default function Page() {
                             <Input id="lead-email" type="email" placeholder="jane@company.com" className="pl-9" value={leadForm.email} onChange={(e) => setLeadForm(prev => ({ ...prev, email: e.target.value }))} />
                           </div>
                         </div>
+                        <div className="space-y-2">
+                          <Label className="text-xs font-medium">Outreach Channel</Label>
+                          <div className="flex gap-2">
+                            <Button type="button" variant={leadForm.channel === 'email' ? 'default' : 'outline'} size="sm" className="flex-1 gap-1.5 h-9" onClick={() => setLeadForm(prev => ({ ...prev, channel: 'email' }))}>
+                              <FiMail size={14} />Email
+                            </Button>
+                            <Button type="button" variant={leadForm.channel === 'linkedin' ? 'default' : 'outline'} size="sm" className={cn("flex-1 gap-1.5 h-9", leadForm.channel === 'linkedin' && 'bg-[#0A66C2] hover:bg-[#004182]')} onClick={() => setLeadForm(prev => ({ ...prev, channel: 'linkedin' }))}>
+                              <FiLinkedin size={14} />LinkedIn
+                            </Button>
+                          </div>
+                        </div>
                         <Button onClick={handleAddLead} className="w-full gap-2" disabled={!leadForm.name.trim() || !leadForm.email.trim()}>
                           <FiPlus size={16} />Add to Batch
                         </Button>
@@ -741,10 +871,10 @@ export default function Page() {
                     <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
                       <CardHeader>
                         <CardTitle className="text-base font-semibold flex items-center gap-2"><FiUsers size={16} />Bulk Import</CardTitle>
-                        <CardDescription className="text-xs">Paste multiple leads (CSV format: Name, Company, CompanyURL, LinkedInURL, Email)</CardDescription>
+                        <CardDescription className="text-xs">Paste multiple leads (CSV: Name, Company, CompanyURL, LinkedInURL, Email, Channel)</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        <Textarea placeholder={"Jane Smith, Acme Corp, https://acme.com, https://linkedin.com/in/jane, jane@acme.com\nJohn Doe, Beta Inc, https://beta.io, https://linkedin.com/in/john, john@beta.io"} value={bulkText} onChange={(e) => setBulkText(e.target.value)} rows={8} className="text-sm" />
+                        <Textarea placeholder={"Jane Smith, Acme Corp, https://acme.com, https://linkedin.com/in/jane, jane@acme.com, email\nJohn Doe, Beta Inc, https://beta.io, https://linkedin.com/in/john, john@beta.io, linkedin"} value={bulkText} onChange={(e) => setBulkText(e.target.value)} rows={8} className="text-sm" />
                         <Button onClick={handleParseBulk} variant="secondary" className="w-full gap-2" disabled={!bulkText.trim()}>
                           <FiCopy size={14} />Parse & Add Leads
                         </Button>
@@ -772,6 +902,7 @@ export default function Page() {
                                 <TableHead className="text-xs">Name</TableHead>
                                 <TableHead className="text-xs">Company</TableHead>
                                 <TableHead className="text-xs">Email</TableHead>
+                                <TableHead className="text-xs w-[70px]">Channel</TableHead>
                                 <TableHead className="text-xs w-[60px]">Remove</TableHead>
                               </TableRow>
                             </TableHeader>
@@ -781,6 +912,7 @@ export default function Page() {
                                   <TableCell className="text-sm font-medium">{lead.name}</TableCell>
                                   <TableCell className="text-sm text-muted-foreground">{lead.company}</TableCell>
                                   <TableCell className="text-sm text-muted-foreground">{lead.email}</TableCell>
+                                  <TableCell><div className="flex items-center justify-center"><ChannelIcon channel={lead.channel} size={15} /></div></TableCell>
                                   <TableCell>
                                     <Button variant="ghost" size="sm" onClick={() => setBatchLeads(prev => prev.filter(l => l.id !== lead.id))} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
                                       <FiTrash2 size={14} />
@@ -869,6 +1001,15 @@ export default function Page() {
                                 <div className="flex items-center gap-2 mb-1">
                                   <h3 className="text-sm font-semibold">{lead.name}</h3>
                                   <Badge variant="outline" className="text-xs">{lead.company}</Badge>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Badge variant="outline" className={cn("text-xs gap-1", lead.channel === 'linkedin' ? 'bg-blue-50 text-[#0A66C2] border-blue-200' : 'bg-orange-50 text-primary border-orange-200')}>
+                                        <ChannelIcon channel={lead.channel} size={10} />
+                                        {lead.channel === 'linkedin' ? 'LinkedIn' : 'Email'}
+                                      </Badge>
+                                    </TooltipTrigger>
+                                    <TooltipContent><p>Primary outreach channel</p></TooltipContent>
+                                  </Tooltip>
                                   {(lead.qualityScore ?? 0) > 0 && (
                                     <Tooltip>
                                       <TooltipTrigger asChild>
@@ -911,7 +1052,7 @@ export default function Page() {
                             {/* Subject + Body */}
                             <div className="space-y-3">
                               <div>
-                                <Label className="text-xs font-medium text-muted-foreground mb-1 block">Subject Line</Label>
+                                <Label className="text-xs font-medium text-muted-foreground mb-1 block flex items-center gap-1"><FiMail size={11} />Subject Line</Label>
                                 {editingLeadId === lead.id ? (
                                   <Input value={lead.subjectLine ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, subjectLine: e.target.value } : l))} className="text-sm" />
                                 ) : (
@@ -919,7 +1060,7 @@ export default function Page() {
                                 )}
                               </div>
                               <div>
-                                <Label className="text-xs font-medium text-muted-foreground mb-1 block">Email Body</Label>
+                                <Label className="text-xs font-medium text-muted-foreground mb-1 block flex items-center gap-1"><FiMail size={11} />Email Body</Label>
                                 {editingLeadId === lead.id ? (
                                   <Textarea value={lead.emailBody ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, emailBody: e.target.value } : l))} rows={6} className="text-sm" />
                                 ) : (
@@ -927,6 +1068,35 @@ export default function Page() {
                                 )}
                               </div>
                             </div>
+
+                            {/* LinkedIn Message with Copy to Clipboard */}
+                            {(lead.linkedinMessage || editingLeadId === lead.id) && (
+                              <div className="mt-3 p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
+                                <div className="flex items-center justify-between mb-2">
+                                  <Label className="text-xs font-medium text-[#0A66C2] flex items-center gap-1.5">
+                                    <FiLinkedin size={13} />
+                                    LinkedIn DM Draft
+                                  </Label>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 gap-1.5 text-xs px-3 border-[#0A66C2]/30 text-[#0A66C2] hover:bg-[#0A66C2]/5 font-medium"
+                                    onClick={async () => {
+                                      const ok = await copyToClipboard(lead.linkedinMessage ?? '')
+                                      if (ok) { setCopiedId(`review-li-${lead.id}`); setTimeout(() => setCopiedId(null), 2000) }
+                                    }}
+                                  >
+                                    {copiedId === `review-li-${lead.id}` ? <><FiCheck size={13} className="text-green-600" /><span className="text-green-600">Copied</span></> : <><FiCopy size={13} />Copy to Clipboard</>}
+                                  </Button>
+                                </div>
+                                {editingLeadId === lead.id ? (
+                                  <Textarea value={lead.linkedinMessage ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, linkedinMessage: e.target.value } : l))} rows={3} className="text-sm bg-white/80 border-blue-200" placeholder="Enter LinkedIn DM text..." />
+                                ) : (
+                                  <div className="text-sm bg-white/60 rounded-lg px-3 py-2 whitespace-pre-wrap border border-blue-100/50">{lead.linkedinMessage || 'No LinkedIn message'}</div>
+                                )}
+                                <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1"><FiInfo size={10} />Copy and paste into LinkedIn DM for manual sending</p>
+                              </div>
+                            )}
 
                             {/* Follow-ups */}
                             {(lead.followUp1 || lead.followUp2 || lead.followUp3) && (
@@ -1012,6 +1182,7 @@ export default function Page() {
                                 <TableRow>
                                   <TableHead className="text-xs">Lead</TableHead>
                                   <TableHead className="text-xs">Company</TableHead>
+                                  <TableHead className="text-xs w-[60px]">Channel</TableHead>
                                   <TableHead className="text-xs">Status</TableHead>
                                   <TableHead className="text-xs">Signal</TableHead>
                                   <TableHead className="text-xs">Days</TableHead>
@@ -1020,10 +1191,20 @@ export default function Page() {
                               </TableHeader>
                               <TableBody>
                                 {/* Show from engagement results if available, otherwise from leads */}
-                                {(engagementResults.length > 0 ? filteredEngagement : (sampleDataOn ? leads.filter(l => ['sent', 'hot_lead', 'replied'].includes(l.status)).map(l => ({ lead_name: l.name, company: l.company, status: l.status, signal_type: l.engagementSignal ?? 'no_response', follow_up_draft: '', days_since_contact: l.daysSinceContact ?? 0 })) : [])).map((er, idx) => (
+                                {(engagementResults.length > 0 ? filteredEngagement : (sampleDataOn ? leads.filter(l => ['sent', 'hot_lead', 'replied'].includes(l.status)).map(l => ({ lead_name: l.name, company: l.company, status: l.status, signal_type: l.engagementSignal ?? 'no_response', channel: l.channel, follow_up_draft: '', days_since_contact: l.daysSinceContact ?? 0 })) : [])).map((er, idx) => (
                                   <TableRow key={idx} className={cn("cursor-pointer hover:bg-secondary/30 transition-colors", selectedEngagementLead === (er.lead_name ?? '') ? 'bg-primary/5' : '')} onClick={() => setSelectedEngagementLead(er.lead_name ?? '')}>
                                     <TableCell className="text-sm font-medium">{er.lead_name ?? 'Unknown'}</TableCell>
                                     <TableCell className="text-sm text-muted-foreground">{er.company ?? ''}</TableCell>
+                                    <TableCell>
+                                      <Tooltip>
+                                        <TooltipTrigger asChild>
+                                          <div className="flex items-center justify-center">
+                                            <ChannelIcon channel={er.channel ?? (leads.find(l => l.name === er.lead_name)?.channel)} size={16} />
+                                          </div>
+                                        </TooltipTrigger>
+                                        <TooltipContent><p>{(er.channel ?? leads.find(l => l.name === er.lead_name)?.channel) === 'linkedin' ? 'LinkedIn' : 'Email'}</p></TooltipContent>
+                                      </Tooltip>
+                                    </TableCell>
                                     <TableCell><StatusBadge status={er.status ?? ''} /></TableCell>
                                     <TableCell><StatusBadge status={er.signal_type ?? ''} /></TableCell>
                                     <TableCell className="text-sm text-muted-foreground">{er.days_since_contact ?? '-'}d</TableCell>
@@ -1032,7 +1213,7 @@ export default function Page() {
                                 ))}
                                 {engagementResults.length === 0 && !sampleDataOn && (
                                   <TableRow>
-                                    <TableCell colSpan={6} className="text-center py-8 text-sm text-muted-foreground">
+                                    <TableCell colSpan={7} className="text-center py-8 text-sm text-muted-foreground">
                                       Click "Check Engagement" to scan for signals
                                     </TableCell>
                                   </TableRow>
@@ -1054,21 +1235,35 @@ export default function Page() {
                           {selectedEngagementLead ? (() => {
                             const er = engagementResults.find(e => e.lead_name === selectedEngagementLead)
                             const lead = leads.find(l => l.name === selectedEngagementLead)
+                            const leadChannel = er?.channel ?? lead?.channel ?? 'email'
+                            const timelineEvents = lead?.timeline ?? []
                             return (
                               <div className="space-y-4">
-                                <div>
-                                  <p className="text-base font-semibold">{selectedEngagementLead}</p>
-                                  <p className="text-xs text-muted-foreground">{er?.company ?? lead?.company ?? ''}</p>
+                                <div className="flex items-start justify-between">
+                                  <div>
+                                    <p className="text-base font-semibold">{selectedEngagementLead}</p>
+                                    <p className="text-xs text-muted-foreground">{er?.company ?? lead?.company ?? ''}</p>
+                                  </div>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="h-7 w-7 rounded-lg bg-secondary flex items-center justify-center">
+                                        <ChannelIcon channel={leadChannel} size={14} />
+                                      </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent><p>Primary: {leadChannel === 'linkedin' ? 'LinkedIn' : 'Email'}</p></TooltipContent>
+                                  </Tooltip>
                                 </div>
                                 <Separator />
                                 <div className="space-y-3">
-                                  <div>
-                                    <p className="text-xs font-medium text-muted-foreground mb-1">Status</p>
-                                    <StatusBadge status={er?.status ?? lead?.status ?? ''} />
-                                  </div>
-                                  <div>
-                                    <p className="text-xs font-medium text-muted-foreground mb-1">Signal Type</p>
-                                    <StatusBadge status={er?.signal_type ?? lead?.engagementSignal ?? ''} />
+                                  <div className="flex items-center gap-3">
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Status</p>
+                                      <StatusBadge status={er?.status ?? lead?.status ?? ''} />
+                                    </div>
+                                    <div>
+                                      <p className="text-xs font-medium text-muted-foreground mb-1">Signal</p>
+                                      <StatusBadge status={er?.signal_type ?? lead?.engagementSignal ?? ''} />
+                                    </div>
                                   </div>
                                   <div>
                                     <p className="text-xs font-medium text-muted-foreground mb-1">Days Since Contact</p>
@@ -1076,29 +1271,78 @@ export default function Page() {
                                   </div>
                                   {er?.follow_up_draft && (
                                     <div>
-                                      <p className="text-xs font-medium text-muted-foreground mb-1">Suggested Follow-up</p>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <p className="text-xs font-medium text-muted-foreground">Suggested Follow-up</p>
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          className="h-7 gap-1.5 text-xs px-2"
+                                          onClick={async (e) => {
+                                            e.stopPropagation()
+                                            const ok = await copyToClipboard(er.follow_up_draft ?? '')
+                                            if (ok) { setCopiedId(`eng-fu-${selectedEngagementLead}`); setTimeout(() => setCopiedId(null), 2000) }
+                                          }}
+                                        >
+                                          {copiedId === `eng-fu-${selectedEngagementLead}` ? <><FiCheck size={12} className="text-green-600" /><span className="text-green-600">Copied</span></> : <><FiCopy size={12} />Copy</>}
+                                        </Button>
+                                      </div>
                                       <div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap">{er.follow_up_draft}</div>
                                     </div>
                                   )}
-                                </div>
-                                {/* Timeline from lead data */}
-                                {lead && (
-                                  <>
-                                    <Separator />
+                                  {/* LinkedIn message copy for LinkedIn-channel leads */}
+                                  {lead?.linkedinMessage && (
                                     <div>
-                                      <p className="text-xs font-medium text-muted-foreground mb-2">Activity Timeline</p>
-                                      <div className="space-y-2">
-                                        <div className="flex items-start gap-2">
-                                          <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 flex-shrink-0" />
-                                          <div>
-                                            <p className="text-xs font-medium">{lead.lastAction}</p>
-                                            <p className="text-xs text-muted-foreground">{lead.lastActionDate}</p>
+                                      <div className="flex items-center justify-between mb-1">
+                                        <p className="text-xs font-medium text-muted-foreground flex items-center gap-1"><FiLinkedin size={11} className="text-[#0A66C2]" />LinkedIn Message</p>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-7 gap-1.5 text-xs px-2.5 border-[#0A66C2]/30 text-[#0A66C2] hover:bg-[#0A66C2]/5"
+                                          onClick={async (e) => {
+                                            e.stopPropagation()
+                                            const ok = await copyToClipboard(lead.linkedinMessage ?? '')
+                                            if (ok) { setCopiedId(`eng-li-${lead.id}`); setTimeout(() => setCopiedId(null), 2000) }
+                                          }}
+                                        >
+                                          {copiedId === `eng-li-${lead.id}` ? <><FiCheck size={12} className="text-green-600" /><span className="text-green-600">Copied</span></> : <><FiCopy size={12} />Copy to Clipboard</>}
+                                        </Button>
+                                      </div>
+                                      <div className="text-sm bg-blue-50/60 border border-blue-100 rounded-lg px-3 py-2 whitespace-pre-wrap">{lead.linkedinMessage}</div>
+                                    </div>
+                                  )}
+                                </div>
+                                {/* Cross-channel Timeline */}
+                                <Separator />
+                                <div>
+                                  <p className="text-xs font-medium text-muted-foreground mb-3">Cross-Channel Timeline</p>
+                                  {timelineEvents.length > 0 ? (
+                                    <div className="relative">
+                                      {/* Vertical line */}
+                                      <div className="absolute left-[9px] top-1 bottom-1 w-px bg-border" />
+                                      <div className="space-y-3">
+                                        {timelineEvents.map((evt, eIdx) => (
+                                          <div key={evt.id || eIdx} className="flex items-start gap-3 relative">
+                                            <div className={cn('w-[19px] h-[19px] rounded-full border-2 flex items-center justify-center flex-shrink-0 z-10', evt.channel === 'linkedin' ? 'border-[#0A66C2] bg-blue-50' : 'border-primary bg-orange-50')}>
+                                              {evt.channel === 'linkedin' ? <FiLinkedin size={9} className="text-[#0A66C2]" /> : <FiMail size={9} className="text-primary" />}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                              <p className="text-xs font-medium leading-tight">{evt.action}</p>
+                                              <p className="text-[11px] text-muted-foreground">{evt.date}{evt.detail ? ` - ${evt.detail}` : ''}</p>
+                                            </div>
                                           </div>
-                                        </div>
+                                        ))}
                                       </div>
                                     </div>
-                                  </>
-                                )}
+                                  ) : (
+                                    <div className="flex items-start gap-2">
+                                      <div className="w-1.5 h-1.5 rounded-full bg-primary mt-1.5 flex-shrink-0" />
+                                      <div>
+                                        <p className="text-xs font-medium">{lead?.lastAction ?? 'No activity'}</p>
+                                        <p className="text-xs text-muted-foreground">{lead?.lastActionDate ?? ''}</p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
                               </div>
                             )
                           })() : (
