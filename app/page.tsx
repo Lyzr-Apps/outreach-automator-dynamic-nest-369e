@@ -28,7 +28,9 @@ import {
   FiClock, FiTrendingUp, FiExternalLink, FiCopy,
   FiRefreshCw, FiFilter, FiEye, FiStar, FiZap,
   FiHash, FiMessageSquare, FiSlack, FiGlobe, FiLinkedin,
-  FiArrowRight, FiInfo
+  FiArrowRight, FiInfo, FiServer, FiShield, FiToggleLeft,
+  FiToggleRight, FiDatabase, FiCode, FiLayers, FiDollarSign,
+  FiAlertTriangle, FiArrowUpRight, FiInbox
 } from 'react-icons/fi'
 
 // ===== AGENT IDS =====
@@ -99,6 +101,155 @@ interface EngagementResult {
   channel?: OutreachChannel
   follow_up_draft?: string
   days_since_contact?: number
+}
+
+// ===== SENDER ACCOUNT TYPE =====
+interface SenderAccount {
+  id: string
+  email: string
+  displayName: string
+  dailyLimit: number
+  sentToday: number
+  healthScore: number
+  active: boolean
+  provider: 'google' | 'smtp'
+}
+
+// ===== RESEARCH TAG TYPE =====
+interface ResearchTag {
+  label: string
+  value: string
+  category: 'funding' | 'tech_stack' | 'bottleneck' | 'trigger' | 'role' | 'company_stage' | 'interest'
+}
+
+// ===== EXTRACT RESEARCH TAGS =====
+function extractResearchTags(summary: string, lead: Lead): ResearchTag[] {
+  const tags: ResearchTag[] = []
+  if (!summary) return tags
+
+  const lower = summary.toLowerCase()
+
+  // Role detection
+  const rolePatterns = [/\b(VP|CTO|CEO|Head|Director|Co-founder|Founder|Manager)\s+(?:of\s+)?([A-Za-z\s&]+?)(?:\s+at\b|,|\.|$)/i]
+  for (const p of rolePatterns) {
+    const m = summary.match(p)
+    if (m) { tags.push({ label: 'Role', value: m[0].trim().replace(/[.,]$/, ''), category: 'role' }); break }
+  }
+
+  // Funding
+  if (/series\s+[a-d]/i.test(lower) || /seed\s+round/i.test(lower) || /raised/i.test(lower) || /funding/i.test(lower)) {
+    const fm = summary.match(/(Series\s+[A-D]|Seed\s+Round|raised\s+\$[\d.]+[MBK]?|Recently\s+raised\s+[^.]+)/i)
+    tags.push({ label: 'Recent Funding', value: fm ? fm[0] : 'Funding activity detected', category: 'funding' })
+  }
+
+  // Tech stack
+  const techKeywords = ['React', 'Node', 'Python', 'AWS', 'GCP', 'Azure', 'Kubernetes', 'Docker', 'TypeScript', 'JavaScript', 'Go', 'Rust', 'PostgreSQL', 'MongoDB', 'Redis', 'Kafka', 'SaaS', 'cloud infrastructure', 'data pipeline', 'data integration']
+  const foundTech: string[] = []
+  for (const t of techKeywords) {
+    if (lower.includes(t.toLowerCase())) foundTech.push(t)
+  }
+  if (foundTech.length > 0) tags.push({ label: 'Tech Stack', value: foundTech.join(', '), category: 'tech_stack' })
+
+  // Bottleneck / challenges
+  const bottleneckPatterns = [/scaling\s+(?:challenges?|issues?|problems?)/i, /challenges?\s+of\s+[^.]+/i, /bottleneck[^.]+/i, /struggling\s+with\s+[^.]+/i, /pain\s+points?\s*:?\s*[^.]+/i]
+  for (const p of bottleneckPatterns) {
+    const bm = summary.match(p)
+    if (bm) { tags.push({ label: 'Current Bottleneck', value: bm[0].trim(), category: 'bottleneck' }); break }
+  }
+
+  // Company stage
+  if (/startup/i.test(lower)) tags.push({ label: 'Company Stage', value: 'Startup', category: 'company_stage' })
+  else if (/enterprise/i.test(lower)) tags.push({ label: 'Company Stage', value: 'Enterprise', category: 'company_stage' })
+  else if (/agency/i.test(lower)) tags.push({ label: 'Company Stage', value: 'Agency', category: 'company_stage' })
+
+  // Triggers
+  if (/recently\s+posted/i.test(lower) || /recent\s+post/i.test(lower)) {
+    tags.push({ label: 'Trigger', value: 'Recent LinkedIn activity', category: 'trigger' })
+  }
+  if (/hiring/i.test(lower) || /new\s+hires/i.test(lower)) {
+    tags.push({ label: 'Trigger', value: 'Hiring signals', category: 'trigger' })
+  }
+  if (/expanding/i.test(lower) || /expansion/i.test(lower) || /growing/i.test(lower)) {
+    tags.push({ label: 'Trigger', value: 'Expansion activity', category: 'trigger' })
+  }
+
+  // Interest
+  if (/interested\s+in\s+([^.]+)/i.test(lower)) {
+    const im = summary.match(/interested\s+in\s+([^.]+)/i)
+    if (im) tags.push({ label: 'Interest', value: im[1].trim(), category: 'interest' })
+  }
+  if (/looking\s+for\s+([^.]+)/i.test(lower)) {
+    const lm = summary.match(/looking\s+for\s+([^.]+)/i)
+    if (lm) tags.push({ label: 'Interest', value: lm[1].trim(), category: 'interest' })
+  }
+
+  return tags
+}
+
+// ===== HIGHLIGHT RESEARCH VARS IN DRAFT =====
+function highlightDraftText(text: string, tags: ResearchTag[]): React.ReactNode[] {
+  if (!text || tags.length === 0) return [text]
+
+  // Gather phrases to highlight from tag values
+  const phrases: string[] = []
+  for (const tag of tags) {
+    const words = tag.value.split(/[,;]/).map(w => w.trim()).filter(w => w.length > 3)
+    phrases.push(...words)
+  }
+
+  if (phrases.length === 0) return [text]
+
+  // Sort by length descending so longer phrases match first
+  phrases.sort((a, b) => b.length - a.length)
+
+  // Escape regex special chars
+  const escaped = phrases.map(p => p.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const regex = new RegExp(`(${escaped.join('|')})`, 'gi')
+
+  const parts = text.split(regex)
+  return parts.map((part, i) => {
+    if (i % 2 === 1) {
+      return <mark key={i} className="bg-amber-100/80 text-amber-900 px-0.5 rounded-sm border-b border-amber-300 font-medium" title="Personalized from research">{part}</mark>
+    }
+    return <span key={i}>{part}</span>
+  })
+}
+
+// ===== RESEARCH TAG CATEGORY COLORS =====
+function tagCategoryStyle(category: ResearchTag['category']): string {
+  switch (category) {
+    case 'funding': return 'bg-green-50 text-green-700 border-green-200'
+    case 'tech_stack': return 'bg-violet-50 text-violet-700 border-violet-200'
+    case 'bottleneck': return 'bg-red-50 text-red-700 border-red-200'
+    case 'trigger': return 'bg-blue-50 text-blue-700 border-blue-200'
+    case 'role': return 'bg-sky-50 text-sky-700 border-sky-200'
+    case 'company_stage': return 'bg-purple-50 text-purple-700 border-purple-200'
+    case 'interest': return 'bg-amber-50 text-amber-700 border-amber-200'
+    default: return 'bg-gray-50 text-gray-700 border-gray-200'
+  }
+}
+
+function tagCategoryIcon(category: ResearchTag['category']): React.ReactNode {
+  switch (category) {
+    case 'funding': return <FiDollarSign size={10} />
+    case 'tech_stack': return <FiCode size={10} />
+    case 'bottleneck': return <FiAlertTriangle size={10} />
+    case 'trigger': return <FiZap size={10} />
+    case 'role': return <FiUser size={10} />
+    case 'company_stage': return <FiLayers size={10} />
+    case 'interest': return <FiSearch size={10} />
+    default: return <FiInfo size={10} />
+  }
+}
+
+// ===== SAMPLE SENDER ACCOUNTS =====
+function generateSampleSenders(): SenderAccount[] {
+  return [
+    { id: 'sa1', email: 'alex@zaps.io', displayName: 'Alex Thompson', dailyLimit: 50, sentToday: 12, healthScore: 98, active: true, provider: 'google' },
+    { id: 'sa2', email: 'a.thompson@zaps.io', displayName: 'A. Thompson', dailyLimit: 40, sentToday: 8, healthScore: 95, active: true, provider: 'google' },
+    { id: 'sa3', email: 'outreach@zaps.io', displayName: 'Zaps Outreach', dailyLimit: 30, sentToday: 28, healthScore: 72, active: true, provider: 'smtp' },
+    { id: 'sa4', email: 'hello@zaps.io', displayName: 'Zaps Hello', dailyLimit: 25, sentToday: 0, healthScore: 100, active: false, provider: 'smtp' },
+  ]
 }
 
 // ===== CLIPBOARD HELPER =====
@@ -303,28 +454,78 @@ function StatCard({ icon, label, value, trend }: { icon: React.ReactNode; label:
   )
 }
 
-// ===== HELPER: PIPELINE COLUMN =====
-function PipelineColumn({ title, leads, color }: { title: string; leads: Lead[]; color: string }) {
+// ===== HELPER: PIPELINE COLUMN (ENHANCED) =====
+function PipelineColumn({ title, leads, color, followUpDays, onAction }: { title: string; leads: Lead[]; color: string; followUpDays: number; onAction?: (lead: Lead, action: string) => void }) {
+  const isStaleColumn = ['researched', 'sent', 'drafted'].includes(title.toLowerCase().replace(' ', '_'))
+
+  const getDaysSinceAction = (dateStr: string) => {
+    if (!dateStr) return 0
+    const d = new Date(dateStr)
+    const now = new Date()
+    return Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24))
+  }
+
+  const getQuickAction = (lead: Lead): { label: string; action: string } | null => {
+    const status = title.toLowerCase().replace(' ', '_')
+    if (status === 'new') return { label: 'Research', action: 'research' }
+    if (status === 'researched' || status === 'drafted') return { label: 'Review Now', action: 'review' }
+    if (status === 'sent') return { label: 'Follow Up', action: 'follow_up' }
+    if (status === 'hot_lead' || status === 'replied') return { label: 'View', action: 'view' }
+    return null
+  }
+
   return (
-    <div className="min-w-[220px] flex-shrink-0">
+    <div className="min-w-[230px] flex-shrink-0">
       <div className="flex items-center gap-2 mb-3">
         <div className={cn('w-2.5 h-2.5 rounded-full', color)} />
         <span className="text-sm font-semibold">{title}</span>
         <Badge variant="secondary" className="text-xs ml-auto">{leads.length}</Badge>
       </div>
       <div className="space-y-2">
-        {leads.map(lead => (
-          <Card key={lead.id} className="bg-white/60 backdrop-blur-[8px] border border-white/[0.15] shadow-sm hover:shadow-md transition-all duration-200">
-            <CardContent className="p-3">
-              <div className="flex items-center gap-1.5">
-                <p className="text-sm font-medium truncate flex-1">{lead.name}</p>
-                <ChannelIcon channel={lead.channel} size={12} />
-              </div>
-              <p className="text-xs text-muted-foreground truncate">{lead.company}</p>
-              {lead.lastAction && <p className="text-xs text-muted-foreground mt-2 truncate flex items-center gap-1"><FiClock size={10} />{lead.lastAction}</p>}
-            </CardContent>
-          </Card>
-        ))}
+        {leads.map(lead => {
+          const daysSince = getDaysSinceAction(lead.lastActionDate)
+          const isStale = isStaleColumn && daysSince >= followUpDays
+          const quickAction = getQuickAction(lead)
+          const initials = lead.company?.split(/\s+/).map(w => w[0]).join('').substring(0, 2).toUpperCase() || '??'
+
+          return (
+            <Card key={lead.id} className={cn("bg-white/60 backdrop-blur-[8px] border shadow-sm hover:shadow-md transition-all duration-200 group", isStale ? 'border-amber-300 ring-1 ring-amber-200' : 'border-white/[0.15]')}>
+              <CardContent className="p-3">
+                {/* Stale alert badge */}
+                {isStale && (
+                  <div className="flex items-center gap-1 mb-1.5 text-amber-600">
+                    <FiAlertTriangle size={11} />
+                    <span className="text-[10px] font-medium">{daysSince}d idle - action needed</span>
+                  </div>
+                )}
+                <div className="flex items-start gap-2.5">
+                  {/* Company logo placeholder */}
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary/10 to-primary/5 border border-primary/10 flex items-center justify-center flex-shrink-0 text-[10px] font-bold text-primary/70">{initials}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1">
+                      <p className="text-sm font-medium truncate flex-1">{lead.name}</p>
+                      <ChannelIcon channel={lead.channel} size={11} />
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">{lead.company}</p>
+                  </div>
+                </div>
+                {lead.lastAction && <p className="text-xs text-muted-foreground mt-2 truncate flex items-center gap-1"><FiClock size={10} />{lead.lastAction}</p>}
+                {/* Quick action button */}
+                {quickAction && (
+                  <Button
+                    variant={isStale ? 'default' : 'outline'}
+                    size="sm"
+                    className={cn("w-full mt-2 h-7 text-xs gap-1 opacity-0 group-hover:opacity-100 transition-opacity", isStale && 'opacity-100')}
+                    onClick={(e) => { e.stopPropagation(); onAction?.(lead, quickAction.action) }}
+                  >
+                    {isStale ? <FiAlertCircle size={11} /> : <FiArrowUpRight size={11} />}
+                    {quickAction.label}
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )
+        })}
         {leads.length === 0 && (
           <div className="py-6 text-center text-xs text-muted-foreground border border-dashed border-border rounded-xl">No leads</div>
         )}
@@ -379,6 +580,13 @@ export default function Page() {
     brandVoice: 'founder',
     emailSignature: 'Best regards,\nAlex Thompson\nFounder, Zaps\nalex@zaps.io',
   })
+
+  // ----- Sender accounts -----
+  const [senderAccounts, setSenderAccounts] = useState<SenderAccount[]>(generateSampleSenders())
+  const [settingsTab, setSettingsTab] = useState<'general' | 'senders' | 'followup'>('general')
+
+  // ----- Review Queue: selected lead for research panel -----
+  const [reviewSelectedId, setReviewSelectedId] = useState<string | null>(null)
 
   // ----- Sample Data Toggle -----
   useEffect(() => {
@@ -784,13 +992,31 @@ export default function Page() {
                     <CardContent>
                       <ScrollArea className="w-full">
                         <div className="flex gap-4 pb-4 min-w-max">
-                          <PipelineColumn title="New" leads={getLeadsByStatus('new')} color="bg-gray-400" />
-                          <PipelineColumn title="Researched" leads={getLeadsByStatus('researched')} color="bg-blue-400" />
-                          <PipelineColumn title="Drafted" leads={getLeadsByStatus('drafted')} color="bg-amber-400" />
-                          <PipelineColumn title="Sent" leads={getLeadsByStatus('sent')} color="bg-sky-400" />
-                          <PipelineColumn title="Hot Lead" leads={getLeadsByStatus('hot_lead')} color="bg-red-400" />
-                          <PipelineColumn title="Replied" leads={getLeadsByStatus('replied')} color="bg-green-400" />
-                          <PipelineColumn title="Closed" leads={getLeadsByStatus('closed')} color="bg-purple-400" />
+                          {[
+                            { title: 'New', status: 'new' as const, color: 'bg-gray-400' },
+                            { title: 'Researched', status: 'researched' as const, color: 'bg-blue-400' },
+                            { title: 'Drafted', status: 'drafted' as const, color: 'bg-amber-400' },
+                            { title: 'Sent', status: 'sent' as const, color: 'bg-sky-400' },
+                            { title: 'Hot Lead', status: 'hot_lead' as const, color: 'bg-red-400' },
+                            { title: 'Replied', status: 'replied' as const, color: 'bg-green-400' },
+                            { title: 'Closed', status: 'closed' as const, color: 'bg-purple-400' },
+                          ].map(col => (
+                            <PipelineColumn
+                              key={col.status}
+                              title={col.title}
+                              leads={getLeadsByStatus(col.status)}
+                              color={col.color}
+                              followUpDays={settings.followUpDays}
+                              onAction={(lead, action) => {
+                                if (action === 'research' || action === 'review') setActiveScreen('review')
+                                else if (action === 'follow_up') setActiveScreen('engagement')
+                                else if (action === 'view') {
+                                  setSelectedEngagementLead(lead.name)
+                                  setActiveScreen('engagement')
+                                }
+                              }}
+                            />
+                          ))}
                         </div>
                       </ScrollArea>
                     </CardContent>
@@ -990,132 +1216,244 @@ export default function Page() {
                     </Card>
                   )}
 
-                  {/* Draft Cards */}
-                  <ScrollArea className="max-h-[calc(100vh-280px)]">
-                    <div className="space-y-4">
-                      {draftedLeads.map(lead => (
-                        <Card key={lead.id} className={cn("bg-white/75 backdrop-blur-[16px] border shadow-md transition-all duration-200", lead.approved ? 'border-green-300 ring-1 ring-green-200' : 'border-white/[0.18]')}>
-                          <CardContent className="p-5">
-                            <div className="flex items-start justify-between mb-4">
-                              <div>
-                                <div className="flex items-center gap-2 mb-1">
-                                  <h3 className="text-sm font-semibold">{lead.name}</h3>
-                                  <Badge variant="outline" className="text-xs">{lead.company}</Badge>
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <Badge variant="outline" className={cn("text-xs gap-1", lead.channel === 'linkedin' ? 'bg-blue-50 text-[#0A66C2] border-blue-200' : 'bg-orange-50 text-primary border-orange-200')}>
-                                        <ChannelIcon channel={lead.channel} size={10} />
-                                        {lead.channel === 'linkedin' ? 'LinkedIn' : 'Email'}
-                                      </Badge>
-                                    </TooltipTrigger>
-                                    <TooltipContent><p>Primary outreach channel</p></TooltipContent>
-                                  </Tooltip>
-                                  {(lead.qualityScore ?? 0) > 0 && (
-                                    <Tooltip>
-                                      <TooltipTrigger asChild>
-                                        <Badge className={cn("text-xs", (lead.qualityScore ?? 0) >= 80 ? 'bg-green-100 text-green-700 border-green-200' : (lead.qualityScore ?? 0) >= 60 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-gray-100 text-gray-600 border-gray-200')} variant="outline">
-                                          <FiStar size={10} className="mr-1" />{lead.qualityScore}
-                                        </Badge>
-                                      </TooltipTrigger>
-                                      <TooltipContent><p>Quality Score: {lead.qualityScore}/100</p></TooltipContent>
-                                    </Tooltip>
+                  {/* SPLIT PANE: Draft Cards (left) + Research Panel (right) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                    {/* LEFT: Draft Cards */}
+                    <div className="lg:col-span-3">
+                      <ScrollArea className="max-h-[calc(100vh-280px)]">
+                        <div className="space-y-4">
+                          {draftedLeads.map(lead => {
+                            const tags = extractResearchTags(lead.researchSummary ?? '', lead)
+                            const isSelected = reviewSelectedId === lead.id
+                            return (
+                              <Card
+                                key={lead.id}
+                                className={cn(
+                                  "bg-white/75 backdrop-blur-[16px] border shadow-md transition-all duration-200 cursor-pointer",
+                                  lead.approved ? 'border-green-300 ring-1 ring-green-200' : isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-white/[0.18]'
+                                )}
+                                onClick={() => setReviewSelectedId(isSelected ? null : lead.id)}
+                              >
+                                <CardContent className="p-5">
+                                  <div className="flex items-start justify-between mb-4">
+                                    <div>
+                                      <div className="flex items-center gap-2 mb-1">
+                                        <h3 className="text-sm font-semibold">{lead.name}</h3>
+                                        <Badge variant="outline" className="text-xs">{lead.company}</Badge>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Badge variant="outline" className={cn("text-xs gap-1", lead.channel === 'linkedin' ? 'bg-blue-50 text-[#0A66C2] border-blue-200' : 'bg-orange-50 text-primary border-orange-200')}>
+                                              <ChannelIcon channel={lead.channel} size={10} />
+                                              {lead.channel === 'linkedin' ? 'LinkedIn' : 'Email'}
+                                            </Badge>
+                                          </TooltipTrigger>
+                                          <TooltipContent><p>Primary outreach channel</p></TooltipContent>
+                                        </Tooltip>
+                                        {(lead.qualityScore ?? 0) > 0 && (
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Badge className={cn("text-xs", (lead.qualityScore ?? 0) >= 80 ? 'bg-green-100 text-green-700 border-green-200' : (lead.qualityScore ?? 0) >= 60 ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-gray-100 text-gray-600 border-gray-200')} variant="outline">
+                                                <FiStar size={10} className="mr-1" />{lead.qualityScore}
+                                              </Badge>
+                                            </TooltipTrigger>
+                                            <TooltipContent><p>Quality Score: {lead.qualityScore}/100</p></TooltipContent>
+                                          </Tooltip>
+                                        )}
+                                        {lead.flags && <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">{lead.flags}</Badge>}
+                                      </div>
+                                      <p className="text-xs text-muted-foreground">{lead.email}</p>
+                                    </div>
+                                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                                      <Checkbox checked={lead.approved ?? false} onCheckedChange={(checked) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, approved: !!checked } : l))} />
+                                      <Button variant="ghost" size="sm" onClick={() => setEditingLeadId(editingLeadId === lead.id ? null : lead.id)} className="h-8 w-8 p-0">
+                                        <FiEdit2 size={14} />
+                                      </Button>
+                                      <Button variant="ghost" size="sm" onClick={() => setLeads(prev => prev.filter(l => l.id !== lead.id))} className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive">
+                                        <FiTrash2 size={14} />
+                                      </Button>
+                                    </div>
+                                  </div>
+
+                                  {/* Subject + Body with highlighting */}
+                                  <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+                                    <div>
+                                      <Label className="text-xs font-medium text-muted-foreground mb-1 block flex items-center gap-1"><FiMail size={11} />Subject Line</Label>
+                                      {editingLeadId === lead.id ? (
+                                        <Input value={lead.subjectLine ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, subjectLine: e.target.value } : l))} className="text-sm" />
+                                      ) : (
+                                        <p className="text-sm font-medium bg-secondary/30 rounded-lg px-3 py-2">{highlightDraftText(lead.subjectLine ?? 'No subject', tags)}</p>
+                                      )}
+                                    </div>
+                                    <div>
+                                      <Label className="text-xs font-medium text-muted-foreground mb-1 block flex items-center gap-1"><FiMail size={11} />Email Body</Label>
+                                      {editingLeadId === lead.id ? (
+                                        <Textarea value={lead.emailBody ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, emailBody: e.target.value } : l))} rows={6} className="text-sm" />
+                                      ) : (
+                                        <div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap leading-relaxed">{highlightDraftText(lead.emailBody ?? 'No email body', tags)}</div>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* LinkedIn Message with Copy to Clipboard */}
+                                  {(lead.linkedinMessage || editingLeadId === lead.id) && (
+                                    <div className="mt-3 p-4 bg-blue-50/50 border border-blue-100 rounded-xl" onClick={(e) => e.stopPropagation()}>
+                                      <div className="flex items-center justify-between mb-2">
+                                        <Label className="text-xs font-medium text-[#0A66C2] flex items-center gap-1.5">
+                                          <FiLinkedin size={13} />
+                                          LinkedIn DM Draft
+                                        </Label>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-8 gap-1.5 text-xs px-3 border-[#0A66C2]/30 text-[#0A66C2] hover:bg-[#0A66C2]/5 font-medium"
+                                          onClick={async () => {
+                                            const ok = await copyToClipboard(lead.linkedinMessage ?? '')
+                                            if (ok) { setCopiedId(`review-li-${lead.id}`); setTimeout(() => setCopiedId(null), 2000) }
+                                          }}
+                                        >
+                                          {copiedId === `review-li-${lead.id}` ? <><FiCheck size={13} className="text-green-600" /><span className="text-green-600">Copied</span></> : <><FiCopy size={13} />Copy to Clipboard</>}
+                                        </Button>
+                                      </div>
+                                      {editingLeadId === lead.id ? (
+                                        <Textarea value={lead.linkedinMessage ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, linkedinMessage: e.target.value } : l))} rows={3} className="text-sm bg-white/80 border-blue-200" placeholder="Enter LinkedIn DM text..." />
+                                      ) : (
+                                        <div className="text-sm bg-white/60 rounded-lg px-3 py-2 whitespace-pre-wrap border border-blue-100/50">{highlightDraftText(lead.linkedinMessage ?? 'No LinkedIn message', tags)}</div>
+                                      )}
+                                      <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1"><FiInfo size={10} />Copy and paste into LinkedIn DM for manual sending</p>
+                                    </div>
                                   )}
-                                  {lead.flags && <Badge variant="outline" className="text-xs bg-amber-50 text-amber-700 border-amber-200">{lead.flags}</Badge>}
-                                </div>
-                                <p className="text-xs text-muted-foreground">{lead.email}</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <Checkbox checked={lead.approved ?? false} onCheckedChange={(checked) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, approved: !!checked } : l))} />
-                                <Button variant="ghost" size="sm" onClick={() => setEditingLeadId(editingLeadId === lead.id ? null : lead.id)} className="h-8 w-8 p-0">
-                                  <FiEdit2 size={14} />
-                                </Button>
-                                <Button variant="ghost" size="sm" onClick={() => setLeads(prev => prev.filter(l => l.id !== lead.id))} className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive">
-                                  <FiTrash2 size={14} />
-                                </Button>
-                              </div>
-                            </div>
 
-                            {/* Research Summary */}
-                            {lead.researchSummary && (
-                              <Accordion type="single" collapsible className="mb-3">
-                                <AccordionItem value="research" className="border-b-0">
-                                  <AccordionTrigger className="text-xs text-muted-foreground py-2 hover:no-underline">
-                                    <span className="flex items-center gap-1"><FiSearch size={12} />Research Summary</span>
-                                  </AccordionTrigger>
-                                  <AccordionContent className="text-sm text-muted-foreground bg-secondary/30 rounded-lg p-3">
-                                    {renderMarkdown(lead.researchSummary)}
-                                  </AccordionContent>
-                                </AccordionItem>
-                              </Accordion>
-                            )}
-
-                            {/* Subject + Body */}
-                            <div className="space-y-3">
-                              <div>
-                                <Label className="text-xs font-medium text-muted-foreground mb-1 block flex items-center gap-1"><FiMail size={11} />Subject Line</Label>
-                                {editingLeadId === lead.id ? (
-                                  <Input value={lead.subjectLine ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, subjectLine: e.target.value } : l))} className="text-sm" />
-                                ) : (
-                                  <p className="text-sm font-medium bg-secondary/30 rounded-lg px-3 py-2">{lead.subjectLine || 'No subject'}</p>
-                                )}
-                              </div>
-                              <div>
-                                <Label className="text-xs font-medium text-muted-foreground mb-1 block flex items-center gap-1"><FiMail size={11} />Email Body</Label>
-                                {editingLeadId === lead.id ? (
-                                  <Textarea value={lead.emailBody ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, emailBody: e.target.value } : l))} rows={6} className="text-sm" />
-                                ) : (
-                                  <div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap">{lead.emailBody || 'No email body'}</div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* LinkedIn Message with Copy to Clipboard */}
-                            {(lead.linkedinMessage || editingLeadId === lead.id) && (
-                              <div className="mt-3 p-4 bg-blue-50/50 border border-blue-100 rounded-xl">
-                                <div className="flex items-center justify-between mb-2">
-                                  <Label className="text-xs font-medium text-[#0A66C2] flex items-center gap-1.5">
-                                    <FiLinkedin size={13} />
-                                    LinkedIn DM Draft
-                                  </Label>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-8 gap-1.5 text-xs px-3 border-[#0A66C2]/30 text-[#0A66C2] hover:bg-[#0A66C2]/5 font-medium"
-                                    onClick={async () => {
-                                      const ok = await copyToClipboard(lead.linkedinMessage ?? '')
-                                      if (ok) { setCopiedId(`review-li-${lead.id}`); setTimeout(() => setCopiedId(null), 2000) }
-                                    }}
-                                  >
-                                    {copiedId === `review-li-${lead.id}` ? <><FiCheck size={13} className="text-green-600" /><span className="text-green-600">Copied</span></> : <><FiCopy size={13} />Copy to Clipboard</>}
-                                  </Button>
-                                </div>
-                                {editingLeadId === lead.id ? (
-                                  <Textarea value={lead.linkedinMessage ?? ''} onChange={(e) => setLeads(prev => prev.map(l => l.id === lead.id ? { ...l, linkedinMessage: e.target.value } : l))} rows={3} className="text-sm bg-white/80 border-blue-200" placeholder="Enter LinkedIn DM text..." />
-                                ) : (
-                                  <div className="text-sm bg-white/60 rounded-lg px-3 py-2 whitespace-pre-wrap border border-blue-100/50">{lead.linkedinMessage || 'No LinkedIn message'}</div>
-                                )}
-                                <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1"><FiInfo size={10} />Copy and paste into LinkedIn DM for manual sending</p>
-                              </div>
-                            )}
-
-                            {/* Follow-ups */}
-                            {(lead.followUp1 || lead.followUp2 || lead.followUp3) && (
-                              <Tabs defaultValue="fu1" className="mt-4">
-                                <TabsList className="h-8">
-                                  {lead.followUp1 && <TabsTrigger value="fu1" className="text-xs px-3 h-7">Follow-up 1</TabsTrigger>}
-                                  {lead.followUp2 && <TabsTrigger value="fu2" className="text-xs px-3 h-7">Follow-up 2</TabsTrigger>}
-                                  {lead.followUp3 && <TabsTrigger value="fu3" className="text-xs px-3 h-7">Follow-up 3</TabsTrigger>}
-                                </TabsList>
-                                {lead.followUp1 && <TabsContent value="fu1" className="mt-2"><div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap">{lead.followUp1}</div></TabsContent>}
-                                {lead.followUp2 && <TabsContent value="fu2" className="mt-2"><div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap">{lead.followUp2}</div></TabsContent>}
-                                {lead.followUp3 && <TabsContent value="fu3" className="mt-2"><div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap">{lead.followUp3}</div></TabsContent>}
-                              </Tabs>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
+                                  {/* Follow-ups */}
+                                  {(lead.followUp1 || lead.followUp2 || lead.followUp3) && (
+                                    <Tabs defaultValue="fu1" className="mt-4" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
+                                      <TabsList className="h-8">
+                                        {lead.followUp1 && <TabsTrigger value="fu1" className="text-xs px-3 h-7">Follow-up 1</TabsTrigger>}
+                                        {lead.followUp2 && <TabsTrigger value="fu2" className="text-xs px-3 h-7">Follow-up 2</TabsTrigger>}
+                                        {lead.followUp3 && <TabsTrigger value="fu3" className="text-xs px-3 h-7">Follow-up 3</TabsTrigger>}
+                                      </TabsList>
+                                      {lead.followUp1 && <TabsContent value="fu1" className="mt-2"><div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap">{lead.followUp1}</div></TabsContent>}
+                                      {lead.followUp2 && <TabsContent value="fu2" className="mt-2"><div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap">{lead.followUp2}</div></TabsContent>}
+                                      {lead.followUp3 && <TabsContent value="fu3" className="mt-2"><div className="text-sm bg-secondary/30 rounded-lg px-3 py-2 whitespace-pre-wrap">{lead.followUp3}</div></TabsContent>}
+                                    </Tabs>
+                                  )}
+                                </CardContent>
+                              </Card>
+                            )
+                          })}
+                        </div>
+                      </ScrollArea>
                     </div>
-                  </ScrollArea>
+
+                    {/* RIGHT: Persistent Research Panel */}
+                    <div className="lg:col-span-2">
+                      <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md sticky top-6">
+                        <CardHeader className="pb-3">
+                          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                            <FiDatabase size={14} className="text-primary" />
+                            Perplexity Research Intel
+                          </CardTitle>
+                          <CardDescription className="text-xs">Click a draft card to view extracted research data</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          {(() => {
+                            const selectedLead = reviewSelectedId ? draftedLeads.find(l => l.id === reviewSelectedId) : null
+                            if (!selectedLead) {
+                              return (
+                                <div className="text-center py-10">
+                                  <FiSearch className="mx-auto text-muted-foreground mb-3" size={24} />
+                                  <p className="text-sm font-medium text-muted-foreground">Select a draft to view research</p>
+                                  <p className="text-xs text-muted-foreground mt-1">Extracted data points and personalization variables will appear here</p>
+                                </div>
+                              )
+                            }
+
+                            const tags = extractResearchTags(selectedLead.researchSummary ?? '', selectedLead)
+
+                            return (
+                              <div className="space-y-5">
+                                {/* Lead header */}
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary/15 to-primary/5 border border-primary/10 flex items-center justify-center text-xs font-bold text-primary/80">
+                                    {selectedLead.company?.split(/\s+/).map(w => w[0]).join('').substring(0, 2).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-semibold">{selectedLead.name}</p>
+                                    <p className="text-xs text-muted-foreground">{selectedLead.company} &middot; {selectedLead.email}</p>
+                                  </div>
+                                </div>
+
+                                <Separator />
+
+                                {/* Extracted Research Tags */}
+                                <div>
+                                  <p className="text-xs font-semibold text-muted-foreground mb-3 uppercase tracking-wider flex items-center gap-1.5">
+                                    <FiLayers size={11} />Extracted Data Points
+                                  </p>
+                                  {tags.length > 0 ? (
+                                    <div className="space-y-2">
+                                      {tags.map((tag, i) => (
+                                        <div key={i} className={cn("flex items-start gap-2 px-3 py-2 rounded-lg border", tagCategoryStyle(tag.category))}>
+                                          <div className="mt-0.5 flex-shrink-0">{tagCategoryIcon(tag.category)}</div>
+                                          <div className="min-w-0">
+                                            <p className="text-[10px] font-semibold uppercase tracking-wider opacity-70">{tag.label}</p>
+                                            <p className="text-xs font-medium leading-snug">{tag.value}</p>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <p className="text-xs text-muted-foreground italic">No structured data points extracted. The research summary may contain unstructured insights.</p>
+                                  )}
+                                </div>
+
+                                {/* Highlight Legend */}
+                                {tags.length > 0 && (
+                                  <div className="px-3 py-2 bg-amber-50/60 border border-amber-100 rounded-lg">
+                                    <p className="text-[10px] font-semibold text-amber-700 flex items-center gap-1 mb-1"><FiInfo size={9} />PERSONALIZATION HIGHLIGHTS</p>
+                                    <p className="text-[11px] text-amber-600">Highlighted text in the draft shows where Perplexity research was injected. These dynamic variables make the outreach feel personal.</p>
+                                  </div>
+                                )}
+
+                                <Separator />
+
+                                {/* Full Research Summary */}
+                                <div>
+                                  <p className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider flex items-center gap-1.5">
+                                    <FiSearch size={11} />Full Research Summary
+                                  </p>
+                                  <div className="text-sm text-muted-foreground bg-secondary/20 rounded-lg p-3 leading-relaxed">
+                                    {renderMarkdown(selectedLead.researchSummary ?? 'No research data available.')}
+                                  </div>
+                                </div>
+
+                                {/* Quality & Links */}
+                                <div className="flex items-center gap-3 flex-wrap">
+                                  {(selectedLead.qualityScore ?? 0) > 0 && (
+                                    <div className="flex items-center gap-1.5">
+                                      <span className="text-[10px] text-muted-foreground">Quality:</span>
+                                      <Badge className={cn("text-xs", (selectedLead.qualityScore ?? 0) >= 80 ? 'bg-green-100 text-green-700 border-green-200' : 'bg-amber-100 text-amber-700 border-amber-200')} variant="outline">
+                                        <FiStar size={9} className="mr-1" />{selectedLead.qualityScore}/100
+                                      </Badge>
+                                    </div>
+                                  )}
+                                  {selectedLead.linkedinUrl && (
+                                    <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1 px-2 text-[#0A66C2]" onClick={() => window.open(selectedLead.linkedinUrl, '_blank')}>
+                                      <FiLinkedin size={10} />Profile
+                                    </Button>
+                                  )}
+                                  {selectedLead.companyUrl && (
+                                    <Button variant="ghost" size="sm" className="h-6 text-[10px] gap-1 px-2 text-muted-foreground" onClick={() => window.open(selectedLead.companyUrl, '_blank')}>
+                                      <FiGlobe size={10} />Website
+                                    </Button>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })()}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </div>
 
                   {/* Empty state */}
                   {draftedLeads.length === 0 && (
@@ -1362,89 +1700,270 @@ export default function Page() {
               {/* SCREEN: SETTINGS         */}
               {/* ======================== */}
               {activeScreen === 'settings' && (
-                <div className="max-w-2xl space-y-6">
-                  {/* Notification Settings */}
-                  <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
-                    <CardHeader>
-                      <CardTitle className="text-base font-semibold flex items-center gap-2"><FiSlack size={16} />Notification Settings</CardTitle>
-                      <CardDescription className="text-xs">Configure where engagement alerts are sent</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="slack-channel" className="text-xs font-medium">Slack Channel</Label>
-                        <div className="relative">
-                          <FiHash className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                          <Input id="slack-channel" placeholder="#sales-alerts" className="pl-9" value={settings.slackChannel} onChange={(e) => setSettings(prev => ({ ...prev, slackChannel: e.target.value }))} />
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                <div className="max-w-4xl space-y-6">
+                  {/* Settings Tabs */}
+                  <div className="flex gap-1 bg-white/60 backdrop-blur-[16px] border border-white/[0.18] rounded-xl p-1 shadow-sm w-fit">
+                    {[
+                      { key: 'general' as const, icon: <FiSettings size={14} />, label: 'General' },
+                      { key: 'senders' as const, icon: <FiInbox size={14} />, label: 'Sender Accounts' },
+                      { key: 'followup' as const, icon: <FiClock size={14} />, label: 'Follow-up Rules' },
+                    ].map(tab => (
+                      <button
+                        key={tab.key}
+                        onClick={() => setSettingsTab(tab.key)}
+                        className={cn("flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all", settingsTab === tab.key ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground hover:bg-secondary/50')}
+                      >
+                        {tab.icon}{tab.label}
+                      </button>
+                    ))}
+                  </div>
 
-                  {/* Follow-Up Rules */}
-                  <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
-                    <CardHeader>
-                      <CardTitle className="text-base font-semibold flex items-center gap-2"><FiClock size={16} />Follow-Up Rules</CardTitle>
-                      <CardDescription className="text-xs">Automatic follow-up behavior</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium">Days Before Follow-Up</Label>
-                        <div className="flex items-center gap-3">
-                          <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setSettings(prev => ({ ...prev, followUpDays: Math.max(1, prev.followUpDays - 1) }))}>-</Button>
-                          <span className="text-lg font-semibold w-8 text-center">{settings.followUpDays}</span>
-                          <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setSettings(prev => ({ ...prev, followUpDays: prev.followUpDays + 1 }))}>+</Button>
-                          <span className="text-xs text-muted-foreground">days</span>
-                        </div>
-                      </div>
-                      <Separator />
-                      <div className="space-y-2">
-                        <Label className="text-xs font-medium">Follow-Up Rotation</Label>
-                        <div className="space-y-3">
-                          <div className="flex items-center gap-2">
-                            <Checkbox id="rot-case" checked={settings.rotationCaseStudy} onCheckedChange={(c) => setSettings(prev => ({ ...prev, rotationCaseStudy: !!c }))} />
-                            <Label htmlFor="rot-case" className="text-sm cursor-pointer">Case Study</Label>
+                  {/* ---- TAB: General ---- */}
+                  {settingsTab === 'general' && (
+                    <div className="space-y-6">
+                      {/* Notification Settings */}
+                      <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
+                        <CardHeader>
+                          <CardTitle className="text-base font-semibold flex items-center gap-2"><FiSlack size={16} />Notification Settings</CardTitle>
+                          <CardDescription className="text-xs">Configure where engagement alerts are sent</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="slack-channel" className="text-xs font-medium">Slack Channel</Label>
+                            <div className="relative">
+                              <FiHash className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
+                              <Input id="slack-channel" placeholder="#sales-alerts" className="pl-9" value={settings.slackChannel} onChange={(e) => setSettings(prev => ({ ...prev, slackChannel: e.target.value }))} />
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <Checkbox id="rot-roi" checked={settings.rotationRoiCalculator} onCheckedChange={(c) => setSettings(prev => ({ ...prev, rotationRoiCalculator: !!c }))} />
-                            <Label htmlFor="rot-roi" className="text-sm cursor-pointer">ROI Calculator</Label>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Checkbox id="rot-checkin" checked={settings.rotationCheckin} onCheckedChange={(c) => setSettings(prev => ({ ...prev, rotationCheckin: !!c }))} />
-                            <Label htmlFor="rot-checkin" className="text-sm cursor-pointer">Check-in Nudge</Label>
-                          </div>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
+                        </CardContent>
+                      </Card>
 
-                  {/* Brand Voice */}
-                  <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
-                    <CardHeader>
-                      <CardTitle className="text-base font-semibold flex items-center gap-2"><FiMessageSquare size={16} />Brand Voice</CardTitle>
-                      <CardDescription className="text-xs">Set the tone for generated email copy</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="flex gap-3">
-                        <Button variant={settings.brandVoice === 'founder' ? 'default' : 'outline'} onClick={() => setSettings(prev => ({ ...prev, brandVoice: 'founder' }))} className="flex-1 gap-2">
-                          <FiUser size={14} />Founder
-                        </Button>
-                        <Button variant={settings.brandVoice === 'professional' ? 'default' : 'outline'} onClick={() => setSettings(prev => ({ ...prev, brandVoice: 'professional' }))} className="flex-1 gap-2">
-                          <FiUsers size={14} />Professional
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
+                      {/* Brand Voice */}
+                      <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
+                        <CardHeader>
+                          <CardTitle className="text-base font-semibold flex items-center gap-2"><FiMessageSquare size={16} />Brand Voice</CardTitle>
+                          <CardDescription className="text-xs">Set the tone for generated email copy</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="flex gap-3">
+                            <Button variant={settings.brandVoice === 'founder' ? 'default' : 'outline'} onClick={() => setSettings(prev => ({ ...prev, brandVoice: 'founder' }))} className="flex-1 gap-2">
+                              <FiUser size={14} />Founder
+                            </Button>
+                            <Button variant={settings.brandVoice === 'professional' ? 'default' : 'outline'} onClick={() => setSettings(prev => ({ ...prev, brandVoice: 'professional' }))} className="flex-1 gap-2">
+                              <FiUsers size={14} />Professional
+                            </Button>
+                          </div>
+                        </CardContent>
+                      </Card>
 
-                  {/* Email Signature */}
-                  <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
-                    <CardHeader>
-                      <CardTitle className="text-base font-semibold flex items-center gap-2"><FiEdit2 size={16} />Email Signature</CardTitle>
-                      <CardDescription className="text-xs">Appended to all outgoing emails</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <Textarea value={settings.emailSignature} onChange={(e) => setSettings(prev => ({ ...prev, emailSignature: e.target.value }))} rows={4} className="text-sm font-mono" />
-                    </CardContent>
-                  </Card>
+                      {/* Email Signature */}
+                      <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
+                        <CardHeader>
+                          <CardTitle className="text-base font-semibold flex items-center gap-2"><FiEdit2 size={16} />Email Signature</CardTitle>
+                          <CardDescription className="text-xs">Appended to all outgoing emails</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                          <Textarea value={settings.emailSignature} onChange={(e) => setSettings(prev => ({ ...prev, emailSignature: e.target.value }))} rows={4} className="text-sm font-mono" />
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* ---- TAB: Sender Accounts ---- */}
+                  {settingsTab === 'senders' && (
+                    <div className="space-y-6">
+                      {/* Overview Stats */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <StatCard icon={<FiInbox size={20} />} label="Active Accounts" value={senderAccounts.filter(s => s.active).length} />
+                        <StatCard icon={<FiSend size={20} />} label="Sent Today" value={senderAccounts.reduce((acc, s) => acc + s.sentToday, 0)} />
+                        <StatCard icon={<FiShield size={20} />} label="Avg Health Score" value={`${Math.round(senderAccounts.filter(s => s.active).reduce((acc, s) => acc + s.healthScore, 0) / Math.max(senderAccounts.filter(s => s.active).length, 1))}%`} />
+                      </div>
+
+                      {/* Sender Accounts Table */}
+                      <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <CardTitle className="text-base font-semibold flex items-center gap-2"><FiServer size={16} />Connected Inboxes</CardTitle>
+                              <CardDescription className="text-xs">Manage sending accounts for email rotation</CardDescription>
+                            </div>
+                            <Button variant="outline" className="gap-2 text-xs h-9" onClick={() => {
+                              const newId = Math.random().toString(36).substring(2, 8)
+                              setSenderAccounts(prev => [...prev, {
+                                id: newId,
+                                email: `new-sender-${newId}@zaps.io`,
+                                displayName: 'New Sender',
+                                dailyLimit: 30,
+                                sentToday: 0,
+                                healthScore: 100,
+                                active: false,
+                                provider: 'smtp',
+                              }])
+                            }}>
+                              <FiPlus size={14} />Connect New SMTP/Google Workspace
+                            </Button>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <Table>
+                            <TableHeader>
+                              <TableRow>
+                                <TableHead className="text-xs">Account</TableHead>
+                                <TableHead className="text-xs">Provider</TableHead>
+                                <TableHead className="text-xs w-[100px]">Daily Limit</TableHead>
+                                <TableHead className="text-xs w-[100px]">Sent Today</TableHead>
+                                <TableHead className="text-xs w-[120px]">Health Score</TableHead>
+                                <TableHead className="text-xs w-[80px]">Active</TableHead>
+                                <TableHead className="text-xs w-[50px]"></TableHead>
+                              </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                              {senderAccounts.map(account => (
+                                <TableRow key={account.id} className={cn(!account.active && 'opacity-60')}>
+                                  <TableCell>
+                                    <div>
+                                      <p className="text-sm font-medium">{account.email}</p>
+                                      <p className="text-xs text-muted-foreground">{account.displayName}</p>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Badge variant="outline" className={cn("text-xs gap-1", account.provider === 'google' ? 'bg-blue-50 text-blue-700 border-blue-200' : 'bg-gray-50 text-gray-700 border-gray-200')}>
+                                      {account.provider === 'google' ? <><FiMail size={10} />Google</> : <><FiServer size={10} />SMTP</>}
+                                    </Badge>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Input
+                                      type="number"
+                                      className="h-7 w-20 text-xs text-center"
+                                      value={account.dailyLimit}
+                                      onChange={(e) => setSenderAccounts(prev => prev.map(s => s.id === account.id ? { ...s, dailyLimit: parseInt(e.target.value) || 0 } : s))}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-sm font-medium">{account.sentToday}</span>
+                                      <span className="text-xs text-muted-foreground">/ {account.dailyLimit}</span>
+                                    </div>
+                                    <Progress value={(account.sentToday / Math.max(account.dailyLimit, 1)) * 100} className="h-1 mt-1" />
+                                  </TableCell>
+                                  <TableCell>
+                                    <div className="flex items-center gap-2">
+                                      <div className={cn("w-2 h-2 rounded-full flex-shrink-0", account.healthScore >= 90 ? 'bg-green-500' : account.healthScore >= 70 ? 'bg-amber-500' : 'bg-red-500')} />
+                                      <span className={cn("text-sm font-medium", account.healthScore >= 90 ? 'text-green-700' : account.healthScore >= 70 ? 'text-amber-700' : 'text-red-700')}>
+                                        {account.healthScore}%
+                                      </span>
+                                    </div>
+                                  </TableCell>
+                                  <TableCell>
+                                    <Switch
+                                      checked={account.active}
+                                      onCheckedChange={(checked) => setSenderAccounts(prev => prev.map(s => s.id === account.id ? { ...s, active: checked } : s))}
+                                    />
+                                  </TableCell>
+                                  <TableCell>
+                                    <Button variant="ghost" size="sm" onClick={() => setSenderAccounts(prev => prev.filter(s => s.id !== account.id))} className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive">
+                                      <FiTrash2 size={13} />
+                                    </Button>
+                                  </TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </CardContent>
+                      </Card>
+
+                      {/* Warmup Tips */}
+                      <Card className="bg-amber-50/50 backdrop-blur-[16px] border border-amber-100 shadow-sm">
+                        <CardContent className="p-4">
+                          <div className="flex items-start gap-3">
+                            <FiShield className="text-amber-600 mt-0.5 flex-shrink-0" size={16} />
+                            <div>
+                              <p className="text-xs font-semibold text-amber-800">Deliverability Tips</p>
+                              <ul className="text-xs text-amber-700 mt-1 space-y-0.5 list-disc ml-4">
+                                <li>Keep daily sends under 50 per account for fresh domains</li>
+                                <li>Rotate sender accounts to avoid rate limits</li>
+                                <li>Health scores below 70% may indicate deliverability issues</li>
+                                <li>Warm up new accounts gradually over 2-4 weeks</li>
+                              </ul>
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
+
+                  {/* ---- TAB: Follow-up Rules ---- */}
+                  {settingsTab === 'followup' && (
+                    <div className="space-y-6">
+                      {/* Follow-Up Cadence */}
+                      <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
+                        <CardHeader>
+                          <CardTitle className="text-base font-semibold flex items-center gap-2"><FiClock size={16} />Follow-Up Cadence</CardTitle>
+                          <CardDescription className="text-xs">Configure timing for automatic follow-up triggers</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-5">
+                          <div className="space-y-2">
+                            <Label className="text-xs font-medium">Days Before Follow-Up</Label>
+                            <div className="flex items-center gap-3">
+                              <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setSettings(prev => ({ ...prev, followUpDays: Math.max(1, prev.followUpDays - 1) }))}>-</Button>
+                              <span className="text-2xl font-bold w-10 text-center text-primary">{settings.followUpDays}</span>
+                              <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setSettings(prev => ({ ...prev, followUpDays: prev.followUpDays + 1 }))}>+</Button>
+                              <span className="text-xs text-muted-foreground">days of no response</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">Leads in the pipeline will show a warning badge after {settings.followUpDays} days of inactivity.</p>
+                          </div>
+
+                          <Separator />
+
+                          {/* Visual cadence timeline */}
+                          <div>
+                            <Label className="text-xs font-medium mb-3 block">Follow-Up Sequence Timeline</Label>
+                            <div className="flex items-center gap-0">
+                              {[
+                                { label: 'Initial Send', day: 0, color: 'bg-primary' },
+                                { label: 'Follow-up 1', day: settings.followUpDays, color: 'bg-blue-500' },
+                                { label: 'Follow-up 2', day: settings.followUpDays * 2, color: 'bg-amber-500' },
+                                { label: 'Follow-up 3', day: settings.followUpDays * 3, color: 'bg-red-500' },
+                              ].map((step, i) => (
+                                <React.Fragment key={i}>
+                                  <div className="flex flex-col items-center">
+                                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold", step.color)}>{i + 1}</div>
+                                    <p className="text-[10px] font-medium mt-1 text-center max-w-[80px]">{step.label}</p>
+                                    <p className="text-[10px] text-muted-foreground">Day {step.day}</p>
+                                  </div>
+                                  {i < 3 && <div className="flex-1 h-px bg-border mx-1 mb-8" />}
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          </div>
+                        </CardContent>
+                      </Card>
+
+                      {/* Follow-Up Rotation */}
+                      <Card className="bg-white/75 backdrop-blur-[16px] border border-white/[0.18] shadow-md">
+                        <CardHeader>
+                          <CardTitle className="text-base font-semibold flex items-center gap-2"><FiRefreshCw size={16} />Follow-Up Rotation</CardTitle>
+                          <CardDescription className="text-xs">Select which follow-up templates to rotate through</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          {[
+                            { id: 'rot-case', label: 'Case Study', desc: 'Share a relevant success story with concrete metrics', checked: settings.rotationCaseStudy, onChange: (c: boolean) => setSettings(prev => ({ ...prev, rotationCaseStudy: c })), icon: <FiStar size={14} className="text-blue-500" /> },
+                            { id: 'rot-roi', label: 'ROI Calculator', desc: 'Offer a personalized ROI projection based on their scale', checked: settings.rotationRoiCalculator, onChange: (c: boolean) => setSettings(prev => ({ ...prev, rotationRoiCalculator: c })), icon: <FiDollarSign size={14} className="text-green-500" /> },
+                            { id: 'rot-checkin', label: 'Check-in Nudge', desc: 'Brief, casual check-in with a new value proposition', checked: settings.rotationCheckin, onChange: (c: boolean) => setSettings(prev => ({ ...prev, rotationCheckin: c })), icon: <FiMessageSquare size={14} className="text-amber-500" /> },
+                          ].map(item => (
+                            <div key={item.id} className={cn("flex items-start gap-3 p-3 rounded-xl border transition-all", item.checked ? 'bg-primary/5 border-primary/20' : 'bg-secondary/20 border-border')}>
+                              <Checkbox id={item.id} checked={item.checked} onCheckedChange={(c) => item.onChange(!!c)} className="mt-0.5" />
+                              <div className="flex-1">
+                                <Label htmlFor={item.id} className="text-sm font-medium cursor-pointer flex items-center gap-2">{item.icon}{item.label}</Label>
+                                <p className="text-xs text-muted-foreground mt-0.5">{item.desc}</p>
+                              </div>
+                              {item.checked && <Badge variant="outline" className="text-[10px] bg-green-50 text-green-700 border-green-200 h-5">Active</Badge>}
+                            </div>
+                          ))}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  )}
                 </div>
               )}
 
